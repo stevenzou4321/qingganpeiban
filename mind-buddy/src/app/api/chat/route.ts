@@ -14,40 +14,54 @@ export async function POST(req: NextRequest) {
     (m: { role: string; content: string }) => m.content.trim() !== ""
   );
 
-  const stream = await client.chat.completions.create({
-    model: "moonshot-v1-8k",
-    max_tokens: 1024,
-    stream: true,
-    messages: [
-      { role: "system", content: systemPrompt },
-      ...cleanMessages.map((m: { role: string; content: string }) => ({
-        role: m.role as "user" | "assistant",
-        content: m.content,
-      })),
-    ],
-  });
+  try {
+    const stream = await client.chat.completions.create({
+      model: "moonshot-v1-8k",
+      max_tokens: 1024,
+      stream: true,
+      messages: [
+        { role: "system", content: systemPrompt },
+        ...cleanMessages.map((m: { role: string; content: string }) => ({
+          role: m.role as "user" | "assistant",
+          content: m.content,
+        })),
+      ],
+    });
 
-  const encoder = new TextEncoder();
-  const readable = new ReadableStream({
-    async start(controller) {
-      for await (const chunk of stream) {
-        const text = chunk.choices[0]?.delta?.content;
-        if (text) {
+    const encoder = new TextEncoder();
+    const readable = new ReadableStream({
+      async start(controller) {
+        try {
+          for await (const chunk of stream) {
+            const text = chunk.choices[0]?.delta?.content;
+            if (text) {
+              controller.enqueue(
+                encoder.encode(`data: ${JSON.stringify({ text })}\n\n`)
+              );
+            }
+          }
+          controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        } catch {
           controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ text })}\n\n`)
+            encoder.encode(`data: ${JSON.stringify({ text: "\n\n[网络异常，请稍后重试]" })}\n\n`)
           );
+        } finally {
+          controller.close();
         }
-      }
-      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-      controller.close();
-    },
-  });
+      },
+    });
 
-  return new Response(readable, {
-    headers: {
-      "Content-Type": "text/event-stream",
-      "Cache-Control": "no-cache",
-      Connection: "keep-alive",
-    },
-  });
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
+  } catch {
+    return new Response(JSON.stringify({ error: "API 调用失败" }), {
+      status: 502,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
 }
