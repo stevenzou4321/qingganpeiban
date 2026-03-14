@@ -22,7 +22,10 @@ function parseMeta(text: string) {
 }
 
 function stripMeta(text: string) {
-  return text.replace(/<!--meta[\s\S]*?meta-->/, "").trim();
+  return text
+    .replace(/<!--meta[\s\S]*?meta-->/, "")
+    .replace(/<!--meta[\s\S]*$/, "")
+    .trim();
 }
 
 export function Chat() {
